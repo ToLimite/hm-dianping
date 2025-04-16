@@ -9,6 +9,7 @@ import com.hmdp.service.IVoucherOrderService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.utils.RedisIdWorker;
 import com.hmdp.utils.UserHolder;
+import org.springframework.aop.framework.AopContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,7 +34,6 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     private RedisIdWorker redisIdWorker;
 
     @Override
-    @Transactional
     public Result seckillVoucher(Long voucherId) {
         // 1.查询优惠券id
         SeckillVoucher voucher = seckillVoucherService.getById(voucherId);
@@ -48,11 +48,33 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         if(voucher.getStock() < 1){
             return Result.fail("库存不足！");
         }
+
+        Long userId = UserHolder.getUser().getId();
+
+        // 先获取锁 ---> 提交事务 ---> 释放锁
+        synchronized (userId.toString().intern()) {  //确保按照id的字符串值来锁！ 每次请求对象不同！每次toString生成的对象也不同！都锁不住！~
+            // Spring需要代理对象来使事务生效！
+            VoucherOrderServiceImpl proxy = (VoucherOrderServiceImpl) AopContext.currentProxy();  // 获取代理对象
+            return proxy.createVoucherOrder(voucherId); // 注意 要从代理对象访问 才会拉起事务
+        }
+    }
+
+    @Transactional
+    public Result createVoucherOrder(Long voucherId) {
+        // 一人一单
+        Long userId = UserHolder.getUser().getId();
+        // 查询订单
+        Integer count = query().eq("user_id", userId).eq("voucher_id", voucherId).count();
+        if(count > 0){
+            // 用户已经购买过
+            return Result.fail("该用户已购买过了");
+        }
+
         // 4.扣减库存
         boolean success = seckillVoucherService.update()
                 .setSql("stock = stock - 1")
                 .eq("voucher_id", voucherId)
-                .gt("stock", 0)// 乐观锁
+                .gt("stock", 0) // 乐观锁
                 .update();
         if(!success){
             return Result.fail("库存不足！");
@@ -63,7 +85,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         long orderId = redisIdWorker.nextId("order");
         voucherOrder.setId(orderId);
         // 用户id
-        Long userId = UserHolder.getUser().getId();
+        userId = UserHolder.getUser().getId();
         voucherOrder.setUserId(userId);
         // 代金券id
         voucherOrder.setVoucherId(voucherId);
