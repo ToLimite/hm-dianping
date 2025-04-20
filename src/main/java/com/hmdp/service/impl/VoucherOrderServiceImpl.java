@@ -8,9 +8,11 @@ import com.hmdp.service.ISeckillVoucherService;
 import com.hmdp.service.IVoucherOrderService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.utils.RedisIdWorker;
+import com.hmdp.utils.SimpleRedisLock;
 import com.hmdp.utils.UserHolder;
 import org.springframework.aop.framework.AopContext;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,6 +35,9 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     @Autowired
     private RedisIdWorker redisIdWorker;
 
+    @Autowired
+    private StringRedisTemplate stringRedisTemplate;
+
     @Override
     public Result seckillVoucher(Long voucherId) {
         // 1.查询优惠券id
@@ -52,11 +57,28 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         Long userId = UserHolder.getUser().getId();
 
         // 先获取锁 ---> 提交事务 ---> 释放锁
-        synchronized (userId.toString().intern()) {  //确保按照id的字符串值来锁！ 每次请求对象不同！每次toString生成的对象也不同！都锁不住！~
-            // Spring需要代理对象来使事务生效！
-            VoucherOrderServiceImpl proxy = (VoucherOrderServiceImpl) AopContext.currentProxy();  // 获取代理对象
-            return proxy.createVoucherOrder(voucherId); // 注意 要从代理对象访问 才会拉起事务
+//        synchronized (userId.toString().intern()) {  //确保按照id的字符串值来锁！ 每次请求对象不同！每次toString生成的对象也不同！都锁不住！~
+//            // Spring需要代理对象来使事务生效！
+//            VoucherOrderServiceImpl proxy = (VoucherOrderServiceImpl) AopContext.currentProxy();  // 获取代理对象
+//            return proxy.createVoucherOrder(voucherId); // 注意 要从代理对象访问 才会拉起事务
+//        }
+
+        // 创建锁对象
+        SimpleRedisLock lock = new SimpleRedisLock("order:" + userId, stringRedisTemplate);
+        // 获取锁
+        boolean isLock = lock.tryLock(5);
+        if(!isLock){
+            // 获取锁失败 返回错误信息/重试 该业务场景下应该返回错误信息
+            return Result.fail("不允许重复下单");
         }
+        try{
+            // 获取代理对象
+            VoucherOrderServiceImpl proxy = (VoucherOrderServiceImpl) AopContext.currentProxy();
+            return proxy.createVoucherOrder(voucherId); // 注意 要从代理对象访问 才会拉起事务
+        }finally {
+            lock.unlock();
+        }
+
     }
 
     @Transactional
