@@ -1,6 +1,7 @@
 package com.hmdp.controller;
 
 
+import cn.hutool.core.lang.UUID;
 import com.hmdp.dto.Result;
 import com.hmdp.entity.Voucher;
 import com.hmdp.service.IVoucherService;
@@ -23,6 +24,14 @@ public class VoucherController {
     @Resource
     private IVoucherService voucherService;
 
+    // 在类加载的时候生成一个UUID，之后不会变化了 （不同JVM中跑多个服务会各自加载类）
+    private static final String uuid = UUID.randomUUID().toString();
+
+    @GetMapping("/test")
+    public String test(){
+        return uuid;
+    }
+    
     /**
      * 新增普通券
      * @param voucher 优惠券信息
