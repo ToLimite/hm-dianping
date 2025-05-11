@@ -67,9 +67,10 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 //            VoucherOrderServiceImpl proxy = (VoucherOrderServiceImpl) AopContext.currentProxy();  // 获取代理对象
 //            return proxy.createVoucherOrder(voucherId); // 注意 要从代理对象访问 才会拉起事务
 //        }
-
-        // 创建锁对象
+//        创建锁对象
 //        SimpleRedisLock lock = new SimpleRedisLock("order:" + userId, stringRedisTemplate);
+
+        //防止用户并发请求创建优惠券订单，使用分布式锁
         RLock lock = redissonClient.getLock("lock:order:" + userId);
         // 获取锁
         boolean isLock = lock.tryLock();  // 无参 失败不等待 默认有效30s
